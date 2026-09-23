@@ -32,6 +32,17 @@ export default defineConfig({
             AUTH_RATE_LIMIT_WINDOW_MINUTES: '15',
             REGISTER_RATE_LIMIT_MAX_REQUESTS: '5000',
             REGISTER_RATE_LIMIT_WINDOW_MINUTES: '60',
+            // Fake keys so the suite never depends on a real .env. The adapters
+            // refuse to run without a key before fetch is reached, and the tests
+            // stub fetch, so these are never sent anywhere. Pinning them also
+            // stops a local run from picking up the real keys.
+            TMDB_ACCESS_TOKEN: 'test-tmdb-token',
+            RAWG_API_KEY: 'test-rawg-key',
+            // A throwaway pair made for the suite (web-push rejects malformed
+            // keys). Not the production pair.
+            VAPID_PUBLIC_KEY: 'BCovQGI7wfHpQPf2tOxvFoMgH1CL2X5cRqQc6ekewyhiqB-tBCKkCGKM6TF2y1HeUD9o6WDmoE-9Zgkru0ULEVY',
+            VAPID_PRIVATE_KEY: 'CP7Qhu-ujFEGGeyh9HW1RE-SF3-Nhsb7FO0uBVbvnds',
+            VAPID_SUBJECT: 'mailto:test@example.com',
         },
         // Every worker boots its own pglite, close to 1 GB each. Vitest's
         // default is one worker per core, which on a 16-core laptop tried to
