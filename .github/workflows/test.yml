@@ -1,0 +1,33 @@
+# Backend tests on every push and PR.
+#
+# No secrets on purpose: the suite runs against an in-memory pglite and
+# vitest.config.js blanks DATABASE_URL, so nothing here can reach the real
+# database or spend the poll's API rate limits.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mv-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 24 for the same reason as daily-poll.yml: the .ts adapters rely on
+          # Node's native type stripping.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mv-backend/package-lock.json
+
+      # Full install, unlike the poll: vitest, supertest and pglite are dev deps.
+      - run: npm ci
+
+      - run: npm test
