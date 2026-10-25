@@ -53,7 +53,7 @@ export const pruneOldQuotes = async (now = new Date()) => {
  * thing in this system that cannot be backfilled (SPEC §7).
  */
 export const runDailyPoll = async () => {
-    const summary = { fetched: 0, inserted: 0, gamesPolled: 0, alertsDue: 0, alertsSent: 0, pruned: 0, refreshed: 0, skipped: [], errors: [] };
+    const summary = { fetched: 0, inserted: 0, gamesPolled: 0, alertsDue: 0, alertsSent: 0, pruned: 0, refreshed: 0, skipped: [], delisted: [], errors: [] };
 
     // An adapter with no configuration is not a failure, it is a source that
     // is not turned on yet. Keeping the two apart matters: the exit code gates
@@ -78,10 +78,13 @@ export const runDailyPoll = async () => {
     // Independent of Kindle: whichever source is configured contributes, and a
     // dead one costs only its own rows.
     try {
-        const { quotes, errors } = await fetchBookPrices();
+        const { quotes, errors, gone } = await fetchBookPrices();
         summary.fetched += quotes.length;
         summary.inserted += await storeQuotes(quotes);
         for (const e of errors) summary.errors.push(`googlebooks ${e}`);
+        // Delisted volumes are reported, not failed: prune them from
+        // GOOGLE_BOOKS_WATCH_IDS at leisure.
+        summary.delisted = gone;
     } catch (err) {
         record('googlebooks', err);
     }
@@ -174,6 +177,10 @@ if (isEntrypoint) {
             `Collected nothing: ${summary.skipped.join(', ')} skipped for missing configuration. ` +
             'Book prices cannot be backfilled - check the secrets before tomorrow.',
         );
+    }
+    // A workflow annotation, so a green run still shows what to prune.
+    if (summary.delisted.length) {
+        console.log(`::warning::Google Books delisted ${summary.delisted.join(', ')}; remove from GOOGLE_BOOKS_WATCH_IDS`);
     }
 
     await disconnectDB();

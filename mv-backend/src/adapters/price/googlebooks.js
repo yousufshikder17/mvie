@@ -78,24 +78,30 @@ const fetchVolume = async (id, key) => {
     url.searchParams.set('country', 'US'); // required, or saleInfo comes back empty
     url.searchParams.set('key', key);
 
-    let last = 'unknown';
+    let status = null;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
         if (res.ok) return res.json();
 
-        last = `HTTP ${res.status}`;
+        status = res.status;
         // 4xx will not fix itself; only retry the transient server-side ones.
-        if (res.status < 500 && res.status !== 429) break;
+        if (status < 500 && status !== 429) break;
         await sleep(BACKOFF_MS * attempt);
     }
-    throw new Error(last);
+    throw Object.assign(new Error(`HTTP ${status ?? 'unknown'}`), { status });
 };
 
 /**
  * Polls every configured volume.
  *
- * Returns { quotes, errors } rather than throwing: one dead volume must not
- * cost the day's other prices, which cannot be backfilled.
+ * Returns { quotes, errors, gone } rather than throwing: one dead volume must
+ * not cost the day's other prices, which cannot be backfilled.
+ *
+ * A 404 is a volume Google delisted (seen 2026-10: two self-published titles
+ * vanished, no redirect, no replacement id). That is permanent, not a fault,
+ * so it goes in `gone` instead of failing every run until someone edits the
+ * secret. All of them 404ing at once is not a delisting, it is a broken
+ * request, and stays an error.
  */
 export const fetchBookPrices = async (
     ids = process.env.GOOGLE_BOOKS_WATCH_IDS,
@@ -108,6 +114,7 @@ export const fetchBookPrices = async (
 
     const quotes = [];
     const errors = [];
+    const gone = [];
 
     // Sequential, not Promise.all: their rate limit is per-IP, and twenty
     // simultaneous calls is how a polite poller becomes a blocked one.
@@ -117,9 +124,13 @@ export const fetchBookPrices = async (
             const quote = volumeToQuote(await fetchVolume(id, key), now);
             if (quote) quotes.push(quote);
         } catch (err) {
-            errors.push(`${id}: ${err.message}`);
+            if (err.status === 404) gone.push(id);
+            else errors.push(`${id}: ${err.message}`);
         }
     }
 
-    return { quotes, errors };
+    if (gone.length === list.length) {
+        return { quotes, errors: [...errors, ...gone.map((id) => `${id}: HTTP 404`)], gone: [] };
+    }
+    return { quotes, errors, gone };
 };

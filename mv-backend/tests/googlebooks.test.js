@@ -117,26 +117,42 @@ describe('fetchBookPrices', () => {
         expect(errors).toEqual([]);
     }, 20000);
 
+    const byId = (bad) => vi.fn(async (url) => {
+        const id = decodeURIComponent(String(url).split('/volumes/')[1].split('?')[0]);
+        return bad[id] ? { ok: false, status: bad[id] } : ok(volume({ id }));
+    });
+
     it('does not retry a 404 — it will not fix itself', async () => {
         let calls = 0;
         vi.stubGlobal('fetch', vi.fn(async () => { calls += 1; return { ok: false, status: 404 }; }));
 
-        const { quotes, errors } = await fetchBookPrices('A', 'test-key', NOW);
+        await fetchBookPrices('A', 'test-key', NOW);
         expect(calls).toBe(1);
-        expect(quotes).toEqual([]);
-        expect(errors[0]).toContain('404');
+    });
+
+    it('reports a delisted (404) volume as gone, not as an error', async () => {
+        vi.stubGlobal('fetch', byId({ GONE: 404 }));
+
+        const { quotes, errors, gone } = await fetchBookPrices('GOOD1,GONE,GOOD2', 'test-key', NOW);
+        expect(quotes).toHaveLength(2);
+        expect(errors).toEqual([]);
+        expect(gone).toEqual(['GONE']);
     });
 
     it('keeps other volumes when one fails — a lost day cannot be backfilled', async () => {
-        vi.stubGlobal('fetch', vi.fn(async (url) => {
-            const id = decodeURIComponent(String(url).split('/volumes/')[1].split('?')[0]);
-            if (id === 'BAD') return { ok: false, status: 404 };
-            return ok(volume({ id }));
-        }));
+        vi.stubGlobal('fetch', byId({ BAD: 403 }));
 
         const { quotes, errors } = await fetchBookPrices('GOOD1,BAD,GOOD2', 'test-key', NOW);
         expect(quotes).toHaveLength(2);
-        expect(errors).toHaveLength(1);
+        expect(errors).toEqual(['BAD: HTTP 403']);
+    });
+
+    it('treats every volume 404ing as a broken request, not a mass delisting', async () => {
+        vi.stubGlobal('fetch', byId({ A: 404, B: 404 }));
+
+        const { errors, gone } = await fetchBookPrices('A,B', 'test-key', NOW);
+        expect(gone).toEqual([]);
+        expect(errors).toEqual(['A: HTTP 404', 'B: HTTP 404']);
     });
 
     it('sends the country parameter, without which saleInfo comes back empty', async () => {
